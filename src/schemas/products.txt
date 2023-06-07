@@ -1,0 +1,28 @@
+db.runCommand({ "collMod": "products",
+    "validator": {
+        "$jsonSchema": {
+                "bsonType": "object",
+                "required": ["id", "name", "department"],
+                "properties": {
+                    "id": {
+                        "bsonType": "number",
+                        "maximum": 99999999,
+                        "minimum": 0,
+                        "description": "Артикул - число от 0 до 999,999,99"
+                    },
+                    "name": {
+                        "bsonType": "string",
+                        "minLength": 4,
+                        "maxLength": 200,
+                        "description": "Название товара строка от 4 до 200"
+                    },
+                    "department": {
+                        "bsonType": "number",
+                        "minimum": 0,
+                        "maximum": 15,
+                        "description": "Отдел должен быть числом от 0(для логистики) и до 15"
+                    }
+                }
+            }
+    }   
+})
