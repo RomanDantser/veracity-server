@@ -11,12 +11,12 @@ const { dbVeracityClient } = require('./src/db');
 const auth = require('./src/auth');
 
 const app = express();
-app.use(express.json( {limit: '50mb'}));
+app.use(express.json({ limit: '50mb' }));
 app.use(cookieParser());
 const corsOptions = {
-    origin: process.env.ORIGIN_DEV,
+    origin: process.env.ORIGIN_PROD,
     credentials: true,
-    optionsSuccessStatus: 200 // some legacy browsers (IE11, various SmartTVs) choke on 204
+    optionsSuccessStatus: 200
   }
 app.use(cors(corsOptions));
 
@@ -74,7 +74,7 @@ app.post('/api/register', async (req, res) => {
         const token = jwt.sign(
             { user_id: userIdObject.insertedId.toString(), LDAP },
             process.env.TOKEN_KEY,
-            { expiresIn: '8h' }
+            { expiresIn: process.env.TOKEN_EXPIRATION_TIME }
         );
         const resultOfTokenSigning = await users.updateOne({ LDAP }, { $set: { token }});
         if (resultOfTokenSigning) {
@@ -113,9 +113,11 @@ app.post('/api/login', async (req, res) => {
         const user = await users.findOne({ LDAP });
 
         if(user && (await bcrypt.compare(password, user.password))) {
-            const token = jwt.sign({ user_id: user._id, LDAP }, process.env.TOKEN_KEY, { expiresIn: '8h' });
+            const token = jwt.sign({ user_id: user._id, LDAP }, process.env.TOKEN_KEY, { expiresIn: process.env.TOKEN_EXPIRATION_TIME });
             const resultOfUpdate = await users.updateOne({ LDAP }, { $set: { token }});
             if(resultOfUpdate) {
+                const currDate = new Date();
+                console.log(`User ${user._id} logged in at ${currDate.toLocaleDateString()}`);
                 res.cookie('auth_token', token, {maxAge: 28800000, httpOnly: true, sameSite: 'none', secure: true})
                 return res.status(200).send({
                     firstName: user.firstName,
@@ -129,7 +131,7 @@ app.post('/api/login', async (req, res) => {
     }
     catch (e) {
         console.error(e);
-        return res.send('Ошибка сервера');
+        return res.send({error: 'Ошибка авторизации'});
     }
 
     return res.send({error: "Неверно введены данные о пользователе"})
@@ -145,6 +147,9 @@ app.get('/api/auth', async (req, res) => {
         const decoded = jwt.verify(token, process.env.TOKEN_KEY);
         const users = db.collection('users');
         const user = await users.findOne({ LDAP: decoded.LDAP });
+        if(user.token !== req.cookies.auth_token) {
+            return res.json({ error: "Ошибка авторизации" })
+        }
         const userData = {
             firstName: user.firstName,
             lastName: user.lastName,
@@ -153,7 +158,7 @@ app.get('/api/auth', async (req, res) => {
             subdivision: user.subdivision
         }
         if (user) {
-            console.log(`Got an authentication from user with LDAP: ${user.LDAP}`);
+            console.log(`Got an authentication from user ${user._id}`);
             return res.status(200).json(userData)
         }
         
@@ -161,6 +166,11 @@ app.get('/api/auth', async (req, res) => {
         return res.json({error: "Некорректный токен авторизации"})
     }
 
+});
+
+app.get('/api/logout', auth,  async (req, res) => {
+    res.cookie('auth_token', "", {maxAge: -1, httpOnly: true, sameSite: 'none', secure: true});
+    return res.send({message: "ok"});
 });
 
 // Items logic
@@ -189,7 +199,7 @@ app.post('/api/create-items', auth, async (req, res) => {
                 programQuantity: item.programQuantity,
                 factQuantity: item.factQuantity,
                 comment: item.comment,
-                status: "В работе",
+                status: "Создана",
                 whoCreated: new ObjectId(req.user.user_id),
                 dateOfCreation: currDate,
                 dateOfExpiration: expDate
@@ -259,14 +269,18 @@ app.get('/api/get-items', auth, async (req, res) => {
             {$unwind: "$whoCreated"},
             {
                $project: {
-                    "productId": 0,
-                    "_id": 0
+                    "productId": 0
                } 
             }
         ]).toArray();
-        res.json(data);
+        const users = db.collection('users');
+        const user = await users.findOne({ _id: new ObjectId(req.user.user_id) });
+        if (user.department === 0) {
+            return res.json(data)
+        } 
 
-
+        const filteredData = data.filter(item => item.productInfo.department === user.department);
+        return res.json(filteredData);
     } catch (err) {
         console.error(err);
         return res.json({error: "Ошибка сервера при получении заявок"})
@@ -290,6 +304,28 @@ app.post('/api/upload-products', auth, async (req, res) => {
 
 
 });
+
+app.post('api/start-item', auth, async (req, res) => {
+    try {
+        const { itemId } = req.body;
+        if (!itemId) {
+            return res.send({error: "Идентификатор заявки пуст"}); 
+        }
+
+        const users = db.collection('users');
+        const user = await users.findOne({_id: new ObjectId(itemId)});
+
+        if(!user || user.subdivision !== "Логистика") {
+            res.send({error: "Ошибка авторизации"});
+        }
+
+
+    } catch (err) {
+        res.send({error: "Ошибка сервера"})
+        console.error(err);
+    }
+});
+
 
 const startOfServer = new Date()
 app.listen(process.env.PORT, ()=> {
