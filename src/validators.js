@@ -81,7 +81,7 @@ function validateFactQuantity(num) {
 }
 
 function validateComments(comment) {
-    return (typeof comment === 'string' && comment.length < 300);
+    return (typeof comment === 'string' && comment.length < 50);
 }
 
 function validateItemOnUpload(programQuantity, factQuantity, comment) {

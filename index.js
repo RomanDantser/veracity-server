@@ -11,10 +11,10 @@ const { dbVeracityClient } = require('./src/db');
 const auth = require('./src/auth');
 
 const app = express();
-app.use(express.json({ limit: '50mb' }));
+app.use(express.json({ limit: '15mb' }));
 app.use(cookieParser());
 const corsOptions = {
-    origin: process.env.ORIGIN_PROD,
+    origin: process.env.ORIGIN_DEV,
     credentials: true,
     optionsSuccessStatus: 200
   }
@@ -169,6 +169,8 @@ app.get('/api/auth', async (req, res) => {
 });
 
 app.get('/api/logout', auth,  async (req, res) => {
+    const currDate = new Date();
+    console.log(`User ${req.user.user_id} logget out at ${currDate.toLocaleString()}`);
     res.cookie('auth_token', "", {maxAge: -1, httpOnly: true, sameSite: 'none', secure: true});
     return res.send({message: "ok"});
 });
@@ -275,8 +277,10 @@ app.get('/api/get-items', auth, async (req, res) => {
         ]).toArray();
         const users = db.collection('users');
         const user = await users.findOne({ _id: new ObjectId(req.user.user_id) });
+        const currDate = new Date();
+        console.log(`User ${req.user.user_id} requested items list at ${currDate.toLocaleString()}`);
         if (user.department === 0) {
-            return res.json(data)
+            return res.json(data);
         } 
 
         const filteredData = data.filter(item => item.productInfo.department === user.department);
@@ -294,18 +298,13 @@ app.post('/api/upload-products', auth, async (req, res) => {
         await products.insertMany(data);
         console.log(`User ${req.user.user_id} uploaded ${data.length} rows of products data`);
         return res.json({ message: 'ok' })
-
-        
-
     } catch (err) {
         console.error(err);
         return res.json({ error: "Ошибка при загрузке товаров на сервер" })
     }
-
-
 });
 
-app.post('api/start-item', auth, async (req, res) => {
+app.post('/api/start-item', auth, async (req, res) => {
     try {
         const { itemId } = req.body;
         if (!itemId) {
@@ -313,21 +312,72 @@ app.post('api/start-item', auth, async (req, res) => {
         }
 
         const users = db.collection('users');
-        const user = await users.findOne({_id: new ObjectId(itemId)});
-
+        const user = await users.findOne({_id: new ObjectId(req.user.user_id)});
         if(!user || user.subdivision !== "Логистика") {
-            res.send({error: "Ошибка авторизации"});
+            return res.send({error: "Ошибка авторизации"});
         }
 
-
+        const currDate = new Date();
+        const expDate = new Date(currDate);
+        expDate.setDate(expDate.getDate() + 1);
+        const items = db.collection('items');
+        const resultOfUpdate = await items.updateOne({_id: new ObjectId(itemId)},
+                                                    [
+                                                        {$set: {dateOfExpiration: expDate}},
+                                                        {$set: {dateOfStart: currDate}},
+                                                        {$set: {status: "В работе"}}
+                                                    ]
+                                                    );
+        if(resultOfUpdate) {
+            return res.send({message: "ok"})
+        }
+        else {
+            return res.send({error: "Ошибка при обновлении заявки"});
+        }
     } catch (err) {
-        res.send({error: "Ошибка сервера"})
+        res.send({error: "Ошибка сервера"});
         console.error(err);
     }
 });
 
+app.post('/api/close-item', auth, async (req, res) => {
+    try {
+        const {
+            comment,
+            itemId
+        } = req.body;
 
-const startOfServer = new Date()
+        if(!comment || !itemId) {
+            return res.send({error: "Заявку закрыть невозможно, т.к. не хватает ключевых полей"})
+        }
+
+        const users = db.collection('users');
+        const user = await users.findOne({_id: new ObjectId(req.user.user_id)});
+        if(!user || user.subdivision !== "Логистика") {
+            return res.send({error: "Ошибка авторизации"});
+        }
+
+        const items = db.collection('items');
+        const resultOfUpdate = await items.updateOne({_id: new ObjectId(itemId)},
+                                                    [
+                                                        {$set: {dateOfClose: new Date()}},
+                                                        {$set: {onCloseComment: comment}},
+                                                        {$set: {status: "Завершена"}}
+                                                    ]
+                                                    );
+        if(resultOfUpdate) {
+            return res.send({message: "ok"})
+        }
+        else {
+            return res.send({error: "Ошибка при обновлении заявки"});
+        }
+    } catch (err) {
+        res.send({error: "Ошибка сервера"});
+        console.error(err);
+    }
+});
+
 app.listen(process.env.PORT, ()=> {
+    const startOfServer = new Date();
     console.log(`Server on port ${process.env.PORT} started at ${startOfServer.toLocaleString()}`);
 });
