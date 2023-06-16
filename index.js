@@ -14,7 +14,7 @@ const app = express();
 app.use(express.json({ limit: '15mb' }));
 app.use(cookieParser());
 const corsOptions = {
-    origin: process.env.ORIGIN_DEV,
+    origin: process.env.ORIGIN_PROD,
     credentials: true,
     optionsSuccessStatus: 200
   }
