@@ -14,12 +14,11 @@ const app = express();
 app.use(express.json({ limit: '15mb' }));
 app.use(cookieParser());
 const corsOptions = {
-    origin: process.env.ORIGIN_PROD,
+    origin: process.env.ORIGIN_DEV,
     credentials: true,
     optionsSuccessStatus: 200
   }
 app.use(cors(corsOptions));
-
 
 const db = dbVeracityClient();
 
@@ -377,7 +376,7 @@ app.post('/api/close-item', auth, async (req, res) => {
     }
 });
 
-app.listen(process.env.PORT, ()=> {
+app.listen(process.env.PORT, () => {
     const startOfServer = new Date();
     console.log(`Server on port ${process.env.PORT} started at ${startOfServer.toLocaleString()}`);
 });
